@@ -14,8 +14,9 @@ import {
   SCREENHEIGHT,
   VIEWWIDTH,
   VIEWHEIGHT,
-  FL_VISABLE,
   ACTORSIZE,
+  ClassType,
+  StaticItemType,
   tileIndex,
 } from "../core/types";
 import type { Actor, StaticObj, DoorObj } from "../core/types";
@@ -31,8 +32,8 @@ const NUM_WALL_TEXTURES = 8; // procedural wall textures
 const NUM_SPRITE_TEXTURES = 20; // procedural sprite textures
 
 // Ceiling and floor colors packed as 0xAABBGGRR (little-endian ABGR for Uint32Array)
-const CEILING_COLOR = 0xff383838; // dark gray
-const FLOOR_COLOR = 0xff707070; // medium gray
+const CEILING_COLOR = 0xff393939; // dark gray ceiling
+const FLOOR_COLOR = 0xff808080; // lighter gray floor (more contrast with ceiling)
 
 // Door tile value range
 const DOOR_TILE_MIN = 90;
@@ -45,6 +46,9 @@ const MAX_RAY_DISTANCE = 0x7fff0000;
 const DEG90 = 90;
 const DEG180 = 180;
 const DEG270 = 270;
+
+// Pre-computed focal length in pixels (~74° horizontal FOV)
+const FOCAL_PIXELS = VIEWWIDTH / 2 / Math.tan((37 * Math.PI) / 180);
 
 // Sprite texture indices
 const SPR_GUARD = 0;
@@ -67,6 +71,83 @@ const SPR_DEAD_GUARD = 16;
 const SPR_WEAPON_KNIFE = 17;
 const SPR_WEAPON_PISTOL = 18;
 const SPR_WEAPON_MACHINEGUN = 19;
+
+// Mapping from actor ClassType to sprite texture index
+function actorSpriteIndex(obclass: ClassType): number {
+  switch (obclass) {
+    case ClassType.Guard:
+      return SPR_GUARD;
+    case ClassType.Dog:
+      return SPR_DOG;
+    case ClassType.SS:
+      return SPR_SS;
+    case ClassType.Officer:
+      return SPR_OFFICER;
+    case ClassType.Mutant:
+      return SPR_GUARD; // reuse guard sprite for mutant
+    case ClassType.Boss:
+    case ClassType.Schabbs:
+    case ClassType.Fake:
+    case ClassType.MechaHitler:
+    case ClassType.RealHitler:
+    case ClassType.Gretel:
+    case ClassType.Gift:
+    case ClassType.Fat:
+    case ClassType.Spectre:
+    case ClassType.Angel:
+    case ClassType.Trans:
+    case ClassType.Uber:
+    case ClassType.Will:
+    case ClassType.Death:
+      return SPR_SS; // reuse SS sprite for boss types
+    default:
+      return SPR_GUARD;
+  }
+}
+
+// Mapping from static item type to sprite texture index
+function staticSpriteIndex(item: StaticItemType): number {
+  switch (item) {
+    case StaticItemType.DeadGuard:
+      return SPR_DEAD_GUARD;
+    case StaticItemType.Barrel:
+      return SPR_BARREL;
+    case StaticItemType.Table:
+    case StaticItemType.TableChairs:
+      return SPR_TABLE;
+    case StaticItemType.FloorLamp:
+    case StaticItemType.Lamp:
+    case StaticItemType.CeilingLamp:
+      return SPR_FLOORLAMP;
+    case StaticItemType.Chandelier:
+    case StaticItemType.CeilingLight:
+    case StaticItemType.CeilingLight2:
+      return SPR_CHANDELIER;
+    case StaticItemType.Food:
+    case StaticItemType.FirstAid:
+      return SPR_HEALTH;
+    case StaticItemType.Clip:
+      return SPR_AMMO;
+    case StaticItemType.GoldKey:
+      return SPR_KEY_GOLD;
+    case StaticItemType.SilverKey:
+      return SPR_KEY_SILVER;
+    case StaticItemType.Cross:
+      return SPR_CROSS;
+    case StaticItemType.Chalice:
+      return SPR_CHALICE;
+    case StaticItemType.Chest:
+      return SPR_CHEST;
+    case StaticItemType.Crown:
+      return SPR_CROWN;
+    case StaticItemType.MachineGunPickup:
+    case StaticItemType.ChainGunPickup:
+      return SPR_WEAPON_MACHINEGUN;
+    default:
+      // Decorations (bones, skeleton, plant, vase, pillar, etc.) - use barrel as fallback
+      return SPR_BARREL;
+  }
+}
 
 // ============================================================================
 // RenderState - passed in each frame by the game logic
@@ -1091,9 +1172,6 @@ export class Renderer {
 
     // Draw sprites on top
     this.drawSprites(state, actors, statics, staticCount, spotvis);
-
-    // Present to canvas
-    this.present();
   }
 
   // ==========================================================================
@@ -1381,9 +1459,8 @@ export class Renderer {
 
       // Calculate projected wall height
       // Wall is TILEGLOBAL units tall; focal length in pixels ≈ 212.
-      // projHeight = TILEGLOBAL * focalPixels / perpDist
-      const focalPixels = VIEWWIDTH / 2 / Math.tan((37 * Math.PI) / 180);
-      let projHeight = Math.floor((TILEGLOBAL * focalPixels) / perpDist);
+      // projHeight = TILEGLOBAL * FOCAL_PIXELS / perpDist
+      let projHeight = Math.floor((TILEGLOBAL * FOCAL_PIXELS) / perpDist);
       if (projHeight > VIEWHEIGHT * 4) projHeight = VIEWHEIGHT * 4;
       if (projHeight < 1) projHeight = 1;
       this.wallHeight[pixx] = projHeight;
@@ -1541,16 +1618,14 @@ export class Renderer {
 
     this.visSpriteCount = 0;
 
-    // Collect visible actors
-    for (let i = 0; i < actors.length; i++) {
+    // Collect visible actors (skip player at index 0)
+    for (let i = 1; i < actors.length; i++) {
       const actor = actors[i];
-      if (!(actor.flags & FL_VISABLE)) continue;
+      if (!actor.state) continue; // inactive actor
 
-      // Check if actor is within the spotvis grid
       const tx = actor.x >> TILESHIFT;
       const ty = actor.y >> TILESHIFT;
       if (tx < 0 || tx >= MAPSIZE || ty < 0 || ty >= MAPSIZE) continue;
-      if (!spotvis[ty * MAPSIZE + tx]) continue;
 
       const sprite = this.transformSprite(
         actor.x,
@@ -1559,7 +1634,7 @@ export class Renderer {
         viewy,
         viewSin,
         viewCos,
-        actor.state ? actor.state.shapenum : 0,
+        actorSpriteIndex(actor.obclass),
       );
       if (sprite) {
         if (this.visSpriteCount < this.visSpritePool.length) {
@@ -1578,12 +1653,11 @@ export class Renderer {
     // Collect visible static objects
     for (let i = 0; i < staticCount; i++) {
       const stat = statics[i];
-      if (!(stat.flags & FL_VISABLE)) continue;
+      if (stat.shapenum < 0) continue; // inactive static
 
       const tx = stat.tilex;
       const ty = stat.tiley;
       if (tx < 0 || tx >= MAPSIZE || ty < 0 || ty >= MAPSIZE) continue;
-      if (!spotvis[ty * MAPSIZE + tx]) continue;
 
       // Static objects are positioned at tile center
       const sx = (tx << TILESHIFT) + (TILEGLOBAL >> 1);
@@ -1596,7 +1670,7 @@ export class Renderer {
         viewy,
         viewSin,
         viewCos,
-        stat.shapenum,
+        staticSpriteIndex(stat.itemnumber),
       );
       if (sprite) {
         if (this.visSpriteCount < this.visSpritePool.length) {
@@ -1660,18 +1734,17 @@ export class Renderer {
     const dx = objx - viewx;
     const dy = objy - viewy;
 
-    // Rotate into view space (viewSin/viewCos are fixed-point * GLOBAL1)
+    // Rotate into view space (viewSin/viewCos are floating-point from Math.sin/cos)
     // tz = forward distance, tx = lateral position
-    const tz = (dx * viewCos + dy * viewSin) / GLOBAL1;
-    const tx = (-dx * viewSin + dy * viewCos) / GLOBAL1;
+    const tz = dx * viewCos + dy * viewSin;
+    const tx = -dx * viewSin + dy * viewCos;
 
     // Behind the viewer
     if (tz < MINDIST) return null;
 
     // Project to screen using pixel-space focal length
-    const focalPixels = VIEWWIDTH / 2 / Math.tan((37 * Math.PI) / 180);
-    const screenX = Math.floor(VIEWWIDTH / 2 + (tx * focalPixels) / tz);
-    const screenHeight = Math.floor((TILEGLOBAL * focalPixels * 0.8) / tz);
+    const screenX = Math.floor(VIEWWIDTH / 2 + (tx * FOCAL_PIXELS) / tz);
+    const screenHeight = Math.floor((TILEGLOBAL * FOCAL_PIXELS * 0.8) / tz);
 
     // Off-screen check
     const halfW = screenHeight >> 1;

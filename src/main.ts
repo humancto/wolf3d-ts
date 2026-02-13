@@ -222,15 +222,6 @@ function updateGame(): void {
   );
 
   // 10. Draw HUD overlay into the renderer's pixel buffer
-  // The renderer has already called present() inside render(), but the pixel
-  // buffer is still available. We draw the HUD and then call present() again.
-  // Actually, the Renderer.render() calls present() at the end. We need to
-  // draw the HUD BEFORE present. The simplest approach: draw into the pixel
-  // buffer and then call present() separately.
-  //
-  // Looking at the renderer code, render() calls present() internally.
-  // So we'll draw the HUD into the screen pixels and call present() again
-  // to update the display with the HUD overlay.
   const pixels = renderer.getScreenPixels();
   drawHUD(pixels, world.gamestate, world.gamestate.weaponframe);
   renderer.present();

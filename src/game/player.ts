@@ -162,16 +162,10 @@ export function pollControls(input: InputState): void {
     input.controly = 100; // backward is positive
   }
 
-  // ---- Strafe with A/D ----
-  // Arrow left/right handled separately for turning
-  let strafeInput = 0;
-  if (keys.has("KeyA")) strafeInput -= 100;
-  if (keys.has("KeyD")) strafeInput += 100;
-
-  // ---- Turn with arrow keys ----
+  // ---- Turn with A/D and arrow keys ----
   let turnInput = 0;
-  if (keys.has("ArrowLeft")) turnInput -= 100;
-  if (keys.has("ArrowRight")) turnInput += 100;
+  if (keys.has("KeyA") || keys.has("ArrowLeft")) turnInput -= 100;
+  if (keys.has("KeyD") || keys.has("ArrowRight")) turnInput += 100;
 
   // Mouse turning (high sensitivity for FPS feel)
   turnInput += input.mouseDx * 3;
@@ -188,10 +182,11 @@ export function pollControls(input: InputState): void {
   input.mouseDy = 0;
 
   // ---- Buttons ----
-  if (keys.has("Space") || keys.has("KeyE")) {
+  if (keys.has("KeyF")) {
     input.buttonstate[ButtonType.Use] = true;
   }
   if (
+    keys.has("Space") ||
     keys.has("ControlLeft") ||
     keys.has("ControlRight") ||
     input.mouseButtons & 1
@@ -306,9 +301,11 @@ export function controlMovement(
   let turnAmount = 0;
 
   if (!strafing) {
-    // Arrow left/right = turn
-    if (keys.has("ArrowLeft")) turnAmount -= ANGLESCALE * tics;
-    if (keys.has("ArrowRight")) turnAmount += ANGLESCALE * tics;
+    // A/D and Arrow left/right = turn
+    if (keys.has("KeyA") || keys.has("ArrowLeft"))
+      turnAmount -= ANGLESCALE * tics;
+    if (keys.has("KeyD") || keys.has("ArrowRight"))
+      turnAmount += ANGLESCALE * tics;
   }
 
   // Mouse always turns (accumulated in mouseDx, but we already processed it into controlx)
@@ -340,9 +337,9 @@ export function controlMovement(
     thrust(world, player, (player.angle + ANGLES / 2) % ANGLES, moveSpeed);
   }
 
-  // ---- Strafe (A/D always strafe; arrows strafe if Strafe button held) ----
-  let strafeLeft = keys.has("KeyA");
-  let strafeRight = keys.has("KeyD");
+  // ---- Strafe (Q/E always strafe; arrows strafe if Strafe button held) ----
+  let strafeLeft = keys.has("KeyQ");
+  let strafeRight = keys.has("KeyE");
   if (strafing) {
     if (keys.has("ArrowLeft")) strafeLeft = true;
     if (keys.has("ArrowRight")) strafeRight = true;
