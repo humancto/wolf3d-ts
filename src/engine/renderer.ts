@@ -21,6 +21,7 @@ import {
 } from "../core/types";
 import type { Actor, StaticObj, DoorObj } from "../core/types";
 import { sintable, costable, pixelangle } from "../core/math";
+import type { AssetManifest } from "./assetLoader";
 
 // ============================================================================
 // Constants
@@ -84,7 +85,7 @@ function actorSpriteIndex(obclass: ClassType): number {
     case ClassType.Officer:
       return SPR_OFFICER;
     case ClassType.Mutant:
-      return SPR_GUARD; // reuse guard sprite for mutant
+      return SPR_DOG; // mutant gets its own sprite (slot shared with dog)
     case ClassType.Boss:
     case ClassType.Schabbs:
     case ClassType.Fake:
@@ -190,6 +191,11 @@ export class Renderer {
   private wallHeight: number[];
   private zbuffer: number[];
 
+  // Weapon frame textures (loaded from assets): [weaponType][frameIdx] = 64x64 ABGR
+  private weaponFrames: (Uint32Array | null)[][] = [];
+  // Whether real assets were loaded (vs procedural fallback)
+  private assetsLoaded = false;
+
   // Reusable sprite list to avoid allocations each frame
   private visSpritePool: VisSprite[];
   private visSpriteCount: number;
@@ -282,6 +288,70 @@ export class Renderer {
     this.generateRedBrick(7);
 
     this.generateAllSprites();
+  }
+
+  // ==========================================================================
+  // Load real textures from asset manifest (replaces procedural where available)
+  // ==========================================================================
+
+  applyAssets(manifest: AssetManifest): void {
+    // --- Wall textures: replace procedural with real PNGs ---
+    for (let i = 0; i < manifest.walls.length; i++) {
+      const tex = manifest.walls[i];
+      if (tex && i < this.wallTextures.length) {
+        this.wallTextures[i] = tex;
+      }
+    }
+
+    // --- Enemy sprites: replace the 4 main enemy types ---
+    // Map: guard=SPR_GUARD(0), officer=SPR_OFFICER(3), ss=SPR_SS(2), mutant uses guard(0)
+    // Use first frame (standing, front-facing = frame 'a') for the sprite texture
+    const enemyMap: { cat: keyof typeof manifest.enemies; idx: number }[] = [
+      { cat: "guard", idx: SPR_GUARD },
+      { cat: "officer", idx: SPR_OFFICER },
+      { cat: "ss", idx: SPR_SS },
+      // For mutant, we overwrite the guard mapping in actorSpriteIndex,
+      // so give mutant its own slot by reusing SPR_DOG (1) for now
+      { cat: "mutant", idx: SPR_DOG },
+    ];
+
+    for (const { cat, idx } of enemyMap) {
+      const frames = manifest.enemies[cat];
+      if (frames.length > 0 && frames[0]) {
+        // Use frame 'a' (index 0) as the standing sprite
+        this.spriteTextures[idx] = frames[0];
+        this.spriteWidths[idx] = 64;
+        this.spriteHeights[idx] = 64;
+      }
+    }
+
+    // --- Weapon frames: store all 5 frames per weapon ---
+    // WeaponType: 0=knife, 1=pistol, 2=machinegun, 3=chaingun
+    const weaponOrder: (keyof typeof manifest.weapons)[] = [
+      "knife",
+      "pistol",
+      "machinegun",
+      "chaingun",
+    ];
+    this.weaponFrames = [];
+    for (const name of weaponOrder) {
+      this.weaponFrames.push([...manifest.weapons[name]]);
+    }
+
+    this.assetsLoaded = true;
+  }
+
+  // --- Public getters for weapon frames ---
+
+  getWeaponFrame(weaponType: number, frameIdx: number): Uint32Array | null {
+    if (!this.assetsLoaded) return null;
+    const frames = this.weaponFrames[weaponType];
+    if (!frames) return null;
+    return frames[frameIdx] ?? null;
+  }
+
+  hasRealAssets(): boolean {
+    return this.assetsLoaded;
   }
 
   // --------------------------------------------------------------------------

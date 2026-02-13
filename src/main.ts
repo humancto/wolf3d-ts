@@ -22,6 +22,7 @@ import {
   ClassType,
 } from "./core/types";
 import { Renderer, RenderState } from "./engine/renderer";
+import { loadAllAssets } from "./engine/assetLoader";
 import {
   createWorldState,
   setupLevel,
@@ -223,7 +224,11 @@ function updateGame(): void {
 
   // 10. Draw HUD overlay into the renderer's pixel buffer
   const pixels = renderer.getScreenPixels();
-  drawHUD(pixels, world.gamestate, world.gamestate.weaponframe);
+  const weaponTex = renderer.getWeaponFrame(
+    world.gamestate.weapon,
+    world.gamestate.weaponframe,
+  );
+  drawHUD(pixels, world.gamestate, world.gamestate.weaponframe, weaponTex);
   renderer.present();
 }
 
@@ -327,7 +332,7 @@ function gameLoop(timestamp: number): void {
 // Initialization
 // ============================================================
 
-function init(): void {
+async function init(): Promise<void> {
   // Get the canvas element
   const canvas = document.getElementById("game-canvas") as HTMLCanvasElement;
   if (!canvas) {
@@ -344,7 +349,23 @@ function init(): void {
 
   // Create the renderer (handles canvas sizing, texture generation)
   renderer = new Renderer(canvas);
+
+  // Always generate procedural textures first (as fallback)
   renderer.generateTextures();
+
+  // Try to load real assets, with progress bar
+  const loadBar = document.getElementById("load-bar") as HTMLElement | null;
+  try {
+    const manifest = await loadAllAssets((loaded, total) => {
+      if (loadBar) {
+        loadBar.style.width = `${Math.floor((loaded / total) * 100)}%`;
+      }
+    });
+    renderer.applyAssets(manifest);
+    console.log("Real Wolf3D assets loaded successfully.");
+  } catch (err) {
+    console.warn("Failed to load assets, using procedural textures:", err);
+  }
 
   // Create the input system
   input = createInputState();

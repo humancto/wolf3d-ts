@@ -558,17 +558,64 @@ function drawKeyIcon(
 // ============================================================
 
 /**
+ * Draw a real weapon texture sprite in the lower center of the 3D viewport.
+ * The texture is a 64x64 ABGR Uint32Array, scaled ~3x and centered.
+ */
+function drawWeaponTextureSprite(
+  pixels: Uint32Array,
+  tex: Uint32Array,
+  weaponFrame: number,
+): void {
+  const tw = 64;
+  const th = 64;
+  const scale = 3;
+  const sw = tw * scale; // 192 pixels wide
+  const sh = th * scale; // 192 pixels tall
+
+  const startX = (VIEWWIDTH - sw) >> 1;
+  const startY = VIEWHEIGHT - sh;
+
+  // Firing animation bob
+  const bobY = weaponFrame > 0 && weaponFrame < 4 ? -4 - weaponFrame * 2 : 0;
+
+  for (let sy = Math.max(0, startY + bobY); sy < VIEWHEIGHT; sy++) {
+    const texY = Math.floor((sy - startY - bobY) / scale);
+    if (texY < 0 || texY >= th) continue;
+    for (
+      let sx = Math.max(0, startX);
+      sx < Math.min(VIEWWIDTH, startX + sw);
+      sx++
+    ) {
+      const texX = Math.floor((sx - startX) / scale);
+      if (texX < 0 || texX >= tw) continue;
+      const pixel = tex[texY * tw + texX];
+      // Skip transparent pixels (alpha = 0)
+      if (pixel >>> 24 === 0) continue;
+      pixels[sy * SCREENWIDTH + sx] = pixel;
+    }
+  }
+
+  // Muzzle flash for firing frames
+  if (weaponFrame === 2) {
+    drawMuzzleFlash(pixels, VIEWWIDTH / 2, VIEWHEIGHT - sh + bobY - 10);
+  }
+}
+
+/**
  * Draw the full HUD into the pixel buffer.
  *
  * Layout (320 wide, rows 160-199):
  * [Floor ##] [Score: ######] [Lives: #] [FACE] [Health: ###%] [Ammo: ##] [Keys] [Weapon name]
  *
  * Also draws the weapon sprite in the 3D view area above the HUD.
+ *
+ * @param weaponTex - Optional real weapon texture (64x64 ABGR). If null, uses procedural.
  */
 export function drawHUD(
   pixels: Uint32Array,
   gamestate: GameState,
   weaponFrame: number,
+  weaponTex?: Uint32Array | null,
 ): void {
   const hudY = VIEWHEIGHT; // row 160
   const hudH = STATUSLINES; // 40 pixels tall
@@ -653,7 +700,11 @@ export function drawHUD(
   }
 
   // ---- Draw weapon sprite in the 3D view area ----
-  drawWeaponSprite(pixels, gamestate.weapon, weaponFrame);
+  if (weaponTex) {
+    drawWeaponTextureSprite(pixels, weaponTex, weaponFrame);
+  } else {
+    drawWeaponSprite(pixels, gamestate.weapon, weaponFrame);
+  }
 }
 
 /**
